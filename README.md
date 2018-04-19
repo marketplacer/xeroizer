@@ -1,4 +1,4 @@
-Xeroizer API Library ![Project status](http://stillmaintained.com/waynerobinson/xeroizer.png)
+Xeroizer API Library ![Project status](http://stillmaintained.com/waynerobinson/xeroizer.png) [![Build Status](https://travis-ci.org/waynerobinson/xeroizer.svg)](https://travis-ci.org/waynerobinson/xeroizer)
 ====================
 
 **Homepage**: 		[http://waynerobinson.github.com/xeroizer](http://waynerobinson.github.com/xeroizer)		
@@ -114,8 +114,8 @@ class XeroSessionController < ApplicationController
 					:access_token => @xero_client.access_token.token,
 					:access_key => @xero_client.access_token.secret }
 															
-			session[:request_token] = nil
-            session[:request_secret] = nil
+			session.data.delete(:request_token)
+			session.data.delete(:request_secret)
 		end
 		
 		def destroy
@@ -176,22 +176,9 @@ contacts = client.Contact.all
 
 ### Partner Applications
 
-Partner applications use a combination of 3-legged authorisation, private key message signing and client-side SSL
-certificate signing.
+Partner applications use a combination of 3-legged authorisation and private key message signing.
 
-Partner applications are only in beta testing via the Xero API and you will need to contact Xero (network@xero.com) to 
-get permission to create a partner application and for them to send you information on obtaining your client-side SSL
-certificate.
-
-Ruby's OpenSSL library requires the certificate and private key to be extracted from the `entrust-client.p12` file
-downloaded via Xero's instructions. To extract:
-
-	openssl pkcs12 -in entrust-client.p12 -clcerts -nokeys -out entrust-cert.pem
-	openssl pkcs12 -in entrust-client.p12 -nocerts -out entrust-private.pem
-	openssl rsa -in entrust-private.pem -out entrust-private-nopass.pem
-	
-	# This last step removes the password that you added to the private key
-	# when it was exported.
+You will need to contact Xero (network@xero.com) to get permission to create a partner application.
 
 After you have followed the instructions provided by Xero for partner applications and uploaded your certificate you can
 access the partner application in a similar way to public applications.
@@ -202,9 +189,7 @@ Authentication occcurs in 3 steps:
 client = Xeroizer::PartnerApplication.new(
 					YOUR_OAUTH_CONSUMER_KEY,
 					YOUR_OAUTH_CONSUMER_SECRET, 
-					"/path/to/privatekey.pem",
-					"/path/to/entrust-cert.pem",
-					"/path/to/entrust-private-nopass.pem"
+					"/path/to/privatekey.pem"
 					)
 
 # 1. Get a RequestToken from Xero. :oauth_callback is the URL the user will be redirected to
@@ -240,7 +225,7 @@ access_secret = client.access_token.secret
 Two other interesting attributes of the PartnerApplication client are:
 
 > **`#expires_at`**:								Time this AccessToken will expire (usually 30 minutes into the future).		
-> **`#authorization_expires_at`**:	How long this organisation has authorised you to access their data (usually 365 days into the future).		
+> **`#authorization_expires_at`**:	How long this organisation has authorised you to access their data (usually 10 years into the future).		
 
 #### AccessToken Renewal
 
@@ -284,7 +269,7 @@ Retrieves list of all records with matching options.
 **Note:** Some records (Invoice, CreditNote) only return summary information for the contact and no line items
 when returning them this list operation. This library takes care of automatically retrieving the 
 contact and line items from Xero on first access however, this first access has a large performance penalty
-and will count as an extra query towards your 1,000/day and 60/minute request per organisation limit.
+and will count as an extra query towards your 5,000/day and 60/minute request per organisation limit.
 
 Valid options are:
 
@@ -356,15 +341,23 @@ in the resulting response, including all nested XML elements.
 	
 		invoices = xero.Invoice.all(:where => 'FullyPaidOnDate>=DateTime.Parse("2010-01-01T00:00:00")&&FullyPaidOnDate<=DateTime.Parse("2010-01-08T00:00:00")')
 	
-**Example 4: Retrieve all Bank Accounts:**
+**Example 4: Retrieve all Invoices using Paging (batches of 100)**
+
+		invoices = xero.Invoice.find_in_batches({page_number: 1}) do |invoice_batch|
+		  invoice_batch.each do |invoice|
+		    ...
+		  end
+		end
+				
+**Example 5: Retrieve all Bank Accounts:**
 	
 		accounts = xero.Account.all(:where => 'Type=="BANK"')
 	
-**Example 5: Retrieve all DELETED or VOIDED Invoices:**
+**Example 6: Retrieve all DELETED or VOIDED Invoices:**
 	
 		invoices = xero.Invoice.all(:where => 'Status=="VOIDED" OR Status=="DELETED"')
 	
-**Example 6: Retrieve all contacts with specific text in the contact name:**
+**Example 7: Retrieve all contacts with specific text in the contact name:**
 
 		contacts = xero.Contact.all(:where => 'Name.Contains("Peter")')
 		contacts = xero.Contact.all(:where => 'Name.StartsWith("Pet")')
@@ -467,7 +460,7 @@ minimum validation requirements for each of the record types.
 
 ### Bulk Creates & Updates
 
-Xero has a hard daily limit on the number of API requests you can make (currently 1,000 requests
+Xero has a hard daily limit on the number of API requests you can make (currently 5,000 requests
 per account per day). To save on requests, you can batch creates and updates into a single PUT or
 POST call, like so:
 
@@ -481,7 +474,7 @@ end
 ```
 
 `batch_save` will issue one PUT request for every 2,000 unsaved records built within its block, and one
-POST request for evert 2,000 existing records that have been altered within its block. If any of the
+POST request for every 2,000 existing records that have been altered within its block. If any of the
 unsaved records aren't valid, it'll return `false` before sending anything across the wire;
 otherwise, it returns `true`. `batch_save` takes one optional argument: the number of records to
 create/update per request. (Defaults to 2,000.)
@@ -519,6 +512,43 @@ contact.errors_for(:name) # will contain ["can't be blank"]
 If something goes really wrong and the particular validation isn't handled by the internal
 validators then the library may raise a `Xeroizer::ApiException`.
 
+Example Use Cases
+-------
+
+Creating & Paying an invoice:
+
+```ruby
+contact = xero.Contact.first
+
+# Build the Invoice, add a LineItem and save it
+invoice = xero.Invoice.build(:type => "ACCREC", :contact => contact, :date => DateTime.new(2017,10,19), :due_date => DateTime.new(2017,11,19))
+
+invoice.add_line_item(:description => 'test', :unit_amount => '200.00', :quantity => '1', :account_code => '200')
+
+invoice.save
+
+# An invoice created without a status will default to 'DRAFT'
+invoice.approved?
+
+# Payments can only be created against 'AUTHROISED' invoices
+invoice.approve!
+
+# Find the first bank account
+bank_account = xero.Account.first(:where => {:type => 'BANK'})
+
+# Create & save the payment
+payment = xero.Payment.build(:invoice => invoice, :account => bank_account, :amount => '220.00')
+payment.save
+
+# Reload the invoice from the Xero API
+invoice = xero.Invoice.find(invoice.id)
+
+# Invoice status is now "PAID" & Payment details have been returned as well
+invoice.status
+invoice.payments.first
+invoice.payments.first.date
+```
+
 Reports
 -------
 
@@ -531,7 +561,7 @@ are welcome).
 Reports are accessed like the following example:
 
 ```ruby
-trial_balance = xero.TrialBalance.get(:date => '2011-03-21')
+trial_balance = xero.TrialBalance.get(:date => DateTime.new(2011,3,21))
 
 # Array containing report headings.
 trial_balance.header.cells.map { | cell | cell.value }
@@ -572,7 +602,7 @@ Xero API Rate Limits
 The Xero API imposes the following limits on calls per organisation:
 
 * A limit of 60 API calls in any 60 second period
-* A limit of 1000 API calls in any 24 hour period
+* A limit of 5000 API calls in any 24 hour period
 
 By default, the library will raise a `Xeroizer::OAuth::RateLimitExceeded`
 exception when one of these limits is exceeded.
@@ -622,7 +652,7 @@ client = Xeroizer::PublicApplication.new(YOUR_OAUTH_CONSUMER_KEY,
 HTTP Callbacks
 --------------------
 
-You can provide "before" and "after" callbacks which will be invoked every
+You can provide "before", "after" and "around" callbacks which will be invoked every
 time Xeroizer makes an HTTP request, which is potentially useful for both
 throttling and logging:
 
@@ -630,7 +660,8 @@ throttling and logging:
 Xeroizer::PublicApplication.new(
   credentials[:key], credentials[:secret],
   before_request: ->(request) { puts "Hitting this URL: #{request.url}" },
-  after_request: ->(request, response) { puts "Got this response: #{response.code}" }
+  after_request: ->(request, response) { puts "Got this response: #{response.code}" },
+  around_request: -> (request, &block)  { puts "About to send request"; block.call; puts "After request"}
 )
 ```
 
@@ -651,6 +682,26 @@ client = Xeroizer::PublicApplication.new(YOUR_OAUTH_CONSUMER_KEY,
 ```
 
 This option adds the unitdp=4 query string parameter to all requests for models with line items - invoices, credit notes, bank transactions and receipts.
+
+Tests
+-----
+
+The tests within the repository can be run by setting up a [Private App](https://developer.xero.com/documentation/auth-and-limits/private-applications).  You can create a Private App in the [developer portal](https://developer.xero.com/myapps/), it's suggested that you create it against the [Demo Company](https://developer.xero.com/documentation/getting-started/development-accounts) (note: the Demo Company expires after 28 days, so you will need to reset it and create a new Private App if you Demo Company has expired).
+
+Once you have created your Private App, set these environment variables:
+```
+EXPORT CONSUMER_KEY="your private app's consumer key"
+EXPORT CONSUMER_SECRET="your private app's consumer secret"
+EXPORT PRIVATE_KEY_PATH="the path to your private app's private key"
+```
+
+PRIVATE_KEY_PATH is the path to the private key for your Private App (you uploaded the Public Key when you created the Private App)
+
+Then run the tests
+```
+rake test
+```
+
 
 ### Contributors
 Xeroizer was inspired by the https://github.com/tlconnor/xero_gateway gem created by Tim Connor 
