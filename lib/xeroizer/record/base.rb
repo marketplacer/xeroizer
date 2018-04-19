@@ -107,6 +107,11 @@ module Xeroizer
         def save
           save!
           true
+        rescue Xeroizer::ApiException => e
+          @errors ||= []
+          e.validation_errors.each { |err_msg| @errors << [:validation_error, err_msg] }
+          log "[ERROR SAVING] (#{__FILE__}:#{__LINE__}) - #{e.message}"
+          false
         rescue XeroizerError => e
           log "[ERROR SAVING] (#{__FILE__}:#{__LINE__}) - #{e.message}"
           false
