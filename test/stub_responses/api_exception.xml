@@ -14,7 +14,11 @@
       <Reference>Ref:SMITHK</Reference>
       <Type>ACCREC</Type>
       <Contact>
-        <ValidationErrors />
+        <ValidationErrors>
+          <ValidationError>
+            <Message>Another contact has this contact number. Please enter a different contact number.</Message>
+          </ValidationError>
+        </ValidationErrors>
         <Warnings />
         <ContactID>00000000-0000-0000-0000-000000000000</ContactID>
         <ContactNumber>0006841301</ContactNumber>

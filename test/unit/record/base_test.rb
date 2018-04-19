@@ -159,6 +159,18 @@ class RecordBaseTest < Test::Unit::TestCase
         @contact.stubs(:new_record?).returns(false)
         assert_equal(false, @contact.save)
       end
+
+      must 'add validation errors creating records with #save' do
+        @contact.stubs(:new_record?).returns(true)
+        @contact.save
+        assert_equal(@contact.errors.count, 2)
+      end
+
+      must 'add validation errors updating records with #save' do
+        @contact.stubs(:new_record?).returns(false)
+        @contact.save
+        assert_equal(@contact.errors.count, 2)
+      end
     end
   end
 end
